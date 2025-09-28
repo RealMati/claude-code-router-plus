@@ -45,23 +45,97 @@ async function initializeClaudeConfig() {
   }
 }
 
+import { type SessionConfig, findAvailablePort, saveSessionConfig, saveSessionPid, buildModelOverrideConfig } from "./utils/sessionManager";
+
 interface RunOptions {
   port?: number;
+  sessionConfig?: SessionConfig;
 }
 
 async function run(options: RunOptions = {}) {
   // Check if service is already running
-  const isRunning = await isServiceRunning()
-  if (isRunning) {
-    console.log("✅ Service is already running in the background.");
-    return;
+  const { sessionConfig } = options;
+
+  if (sessionConfig) {
+    const { isSessionRunning } = require("./utils/sessionManager");
+    const isRunning = await isSessionRunning(sessionConfig);
+    if (isRunning) {
+      console.log(`✅ Session ${sessionConfig.sessionId} (${sessionConfig.modelPreference || 'default'}) is already running on port ${sessionConfig.port}.`);
+      return;
+    }
+  } else {
+    const isRunning = await isServiceRunning();
+    if (isRunning) {
+      console.log("✅ Service is already running in the background.");
+      return;
+    }
   }
 
   await initializeClaudeConfig();
   await initDir();
   // Clean up old log files, keeping only the 10 most recent ones
   await cleanupLogFiles();
-  const config = await initConfig();
+  let config = await initConfig();
+
+  // Apply session-specific configuration overrides
+  if (sessionConfig) {
+    const overrides = buildModelOverrideConfig(sessionConfig);
+    config = { ...config, ...overrides };
+
+    // Validate model preference at startup
+    if (sessionConfig.modelPreference) {
+      const [provider, model] = sessionConfig.modelPreference.includes(",")
+        ? sessionConfig.modelPreference.split(",")
+        : sessionConfig.modelPreference.includes("/")
+        ? sessionConfig.modelPreference.split("/")
+        : [null, sessionConfig.modelPreference];
+
+      if (provider && model) {
+        const foundProvider = config.Providers?.find(
+          (p: any) => p.name.toLowerCase() === provider.toLowerCase()
+        );
+
+        if (!foundProvider) {
+          console.warn(`⚠️  Warning: Provider '${provider}' not found in configuration`);
+          console.warn(`   Falling back to default: ${config.Router?.default || 'system default'}`);
+        } else {
+          const foundModel = foundProvider.models?.find(
+            (m: any) => m.toLowerCase() === model.toLowerCase()
+          );
+
+          if (!foundModel) {
+            console.warn(`⚠️  Warning: Model '${model}' not found in provider '${provider}'`);
+            console.warn(`   Available models: ${foundProvider.models?.join(', ') || 'none'}`);
+            console.warn(`   Falling back to default: ${config.Router?.default || 'system default'}`);
+          }
+        }
+      } else if (model) {
+        // Just a model name, check if it exists in any provider
+        let found = false;
+        for (const provider of config.Providers || []) {
+          if (provider.models?.find((m: any) => m.toLowerCase() === model.toLowerCase())) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          console.warn(`⚠️  Warning: Model '${model}' not found in any provider`);
+          console.warn(`   Falling back to default: ${config.Router?.default || 'system default'}`);
+        }
+      }
+    }
+
+    // Find an available port for this session
+    const startPort = sessionConfig.port || config.PORT || 3456;
+    sessionConfig.port = await findAvailablePort(startPort);
+
+    // Save the session configuration
+    saveSessionConfig(sessionConfig);
+
+    console.log(`Starting session ${sessionConfig.sessionId}:`);
+    console.log(`  Model Preference: ${sessionConfig.modelPreference || 'default'}`);
+    console.log(`  Port: ${sessionConfig.port}`);
+  }
 
 
   let HOST = config.HOST || "127.0.0.1";
@@ -71,28 +145,41 @@ async function run(options: RunOptions = {}) {
     console.warn("⚠️ API key is not set. HOST is forced to 127.0.0.1.");
   }
 
-  const port = config.PORT || 3456;
+  const port = sessionConfig?.port || config.PORT || 3456;
 
   // Save the PID of the background process
-  savePid(process.pid);
+  if (sessionConfig) {
+    saveSessionPid(sessionConfig, process.pid);
+  } else {
+    savePid(process.pid);
+  }
 
   // Handle SIGINT (Ctrl+C) to clean up PID file
   process.on("SIGINT", () => {
     console.log("Received SIGINT, cleaning up...");
-    cleanupPidFile();
+    if (sessionConfig) {
+      const { cleanupSessionPid } = require("./utils/sessionManager");
+      cleanupSessionPid(sessionConfig);
+    } else {
+      cleanupPidFile();
+    }
     process.exit(0);
   });
 
   // Handle SIGTERM to clean up PID file
   process.on("SIGTERM", () => {
-    cleanupPidFile();
+    if (sessionConfig) {
+      const { cleanupSessionPid } = require("./utils/sessionManager");
+      cleanupSessionPid(sessionConfig);
+    } else {
+      cleanupPidFile();
+    }
     process.exit(0);
   });
 
-  // Use port from environment variable if set (for background process)
-  const servicePort = process.env.SERVICE_PORT
-    ? parseInt(process.env.SERVICE_PORT)
-    : port;
+  // Use port from session config or environment variable if set
+  const servicePort = sessionConfig?.port ||
+    (process.env.SERVICE_PORT ? parseInt(process.env.SERVICE_PORT) : port);
 
   // Configure logger based on config settings
   const pad = num => (num > 9 ? "" : "0") + num;
@@ -132,8 +219,10 @@ async function run(options: RunOptions = {}) {
       LOG_FILE: join(
         homedir(),
         ".claude-code-router",
-        "claude-code-router.log"
+        sessionConfig ? `sessions/${sessionConfig.sessionId}/router.log` : "claude-code-router.log"
       ),
+      // Pass model override configuration if available
+      ...(sessionConfig ? buildModelOverrideConfig(sessionConfig) : {})
     },
     logger: loggerConfig,
   });

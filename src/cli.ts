@@ -13,6 +13,12 @@ import { spawn, exec } from "child_process";
 import { PID_FILE, REFERENCE_COUNT_FILE } from "./constants";
 import fs, { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import {
+  getSessionConfig,
+  isSessionRunning,
+  getAllActiveSessions,
+  type SessionConfig
+} from "./utils/sessionManager";
 
 const command = process.argv[2];
 
@@ -20,32 +26,39 @@ const HELP_TEXT = `
 Usage: ccr [command]
 
 Commands:
-  start         Start server 
+  start         Start server
   stop          Stop server
   restart       Restart server
   status        Show server status
   statusline    Integrated statusline
   code          Execute claude command
   ui            Open the web UI in browser
+  sessions      List all active sessions
   -v, version   Show version information
   -h, help      Show help information
 
 Example:
   ccr start
   ccr code "Write a Hello World"
+  CCR_MODEL_PREFERENCE=openrouter/gpt-4 ccr code "Use GPT-4"
+  CCR_MODEL_PREFERENCE=anthropic,claude-3-opus ccr code "Use Claude Opus"
+  ccr sessions
   ccr ui
 `;
 
 async function waitForService(
   timeout = 10000,
-  initialDelay = 1000
+  initialDelay = 1000,
+  sessionConfig?: SessionConfig
 ): Promise<boolean> {
   // Wait for an initial period to let the service initialize
   await new Promise((resolve) => setTimeout(resolve, initialDelay));
 
   const startTime = Date.now();
   while (Date.now() - startTime < timeout) {
-    const isRunning = await isServiceRunning()
+    const isRunning = sessionConfig
+      ? await isSessionRunning(sessionConfig)
+      : await isServiceRunning();
     if (isRunning) {
       // Wait for an additional short period to ensure service is fully ready
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -57,35 +70,81 @@ async function waitForService(
 }
 
 async function main() {
-  const isRunning = await isServiceRunning()
+  // Check for model preference in environment
+  const modelPreference = process.env.CCR_MODEL_PREFERENCE || '';
+  let sessionConfig: SessionConfig | null = null;
+  let isRunning = false;
+
+  // For session-aware commands, get the session config
+  if (['start', 'stop', 'status', 'code'].includes(command)) {
+    sessionConfig = getSessionConfig(modelPreference);
+    isRunning = await isSessionRunning(sessionConfig);
+  } else {
+    isRunning = await isServiceRunning();
+  }
+
   switch (command) {
     case "start":
-      run();
+      if (sessionConfig) {
+        run({ sessionConfig });
+      } else {
+        run();
+      }
       break;
     case "stop":
-      try {
-        const pid = parseInt(readFileSync(PID_FILE, "utf-8"));
-        process.kill(pid);
-        cleanupPidFile();
-        if (existsSync(REFERENCE_COUNT_FILE)) {
-          try {
-            fs.unlinkSync(REFERENCE_COUNT_FILE);
-          } catch (e) {
-            // Ignore cleanup errors
+      if (sessionConfig) {
+        const { cleanupSessionPid, getSessionPid } = require("./utils/sessionManager");
+        try {
+          const pid = getSessionPid(sessionConfig);
+          if (pid) {
+            process.kill(pid);
+            cleanupSessionPid(sessionConfig);
+            if (existsSync(sessionConfig.referenceCountFile)) {
+              try {
+                fs.unlinkSync(sessionConfig.referenceCountFile);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }
+            console.log(
+              `Session ${sessionConfig.sessionId} (${sessionConfig.modelPreference || 'default'}) has been successfully stopped.`
+            );
+          } else {
+            console.log(
+              `Session ${sessionConfig.sessionId} is not running.`
+            );
           }
+        } catch (e) {
+          console.log(
+            `Failed to stop session ${sessionConfig.sessionId}. It may have already been stopped.`
+          );
+          cleanupSessionPid(sessionConfig);
         }
-        console.log(
-          "claude code router service has been successfully stopped."
-        );
-      } catch (e) {
-        console.log(
-          "Failed to stop the service. It may have already been stopped."
-        );
-        cleanupPidFile();
+      } else {
+        try {
+          const pid = parseInt(readFileSync(PID_FILE, "utf-8"));
+          process.kill(pid);
+          cleanupPidFile();
+          if (existsSync(REFERENCE_COUNT_FILE)) {
+            try {
+              fs.unlinkSync(REFERENCE_COUNT_FILE);
+            } catch (e) {
+              // Ignore cleanup errors
+            }
+          }
+          console.log(
+            "claude code router service has been successfully stopped."
+          );
+        } catch (e) {
+          console.log(
+            "Failed to stop the service. It may have already been stopped."
+          );
+          cleanupPidFile();
+        }
       }
       break;
     case "status":
-      await showStatus();
+      await showStatus(sessionConfig);
       break;
     case "statusline":
       // 从stdin读取JSON输入
@@ -111,36 +170,34 @@ async function main() {
       break;
     case "code":
       if (!isRunning) {
-        console.log("Service not running, starting service...");
+        const sessionLabel = sessionConfig?.modelPreference ?
+          ` for session '${sessionConfig.modelPreference}'` : '';
+        console.log(`Service not running${sessionLabel}, starting service...`);
+
         const cliPath = join(__dirname, "cli.js");
+        const env = { ...process.env };
+
+        // Pass model preference to the start command
+        if (modelPreference) {
+          env.CCR_MODEL_PREFERENCE = modelPreference;
+        }
+
         const startProcess = spawn("node", [cliPath, "start"], {
           detached: true,
           stdio: "ignore",
+          env
         });
-
-        // let errorMessage = "";
-        // startProcess.stderr?.on("data", (data) => {
-        //   errorMessage += data.toString();
-        // });
 
         startProcess.on("error", (error) => {
           console.error("Failed to start service:", error.message);
           process.exit(1);
         });
 
-        // startProcess.on("close", (code) => {
-        //   if (code !== 0 && errorMessage) {
-        //     console.error("Failed to start service:", errorMessage.trim());
-        //     process.exit(1);
-        //   }
-        // });
-
         startProcess.unref();
 
-        if (await waitForService()) {
-          // Join all code arguments into a single string to preserve spaces within quotes
+        if (await waitForService(10000, 1000, sessionConfig)) {
           const codeArgs = process.argv.slice(3);
-          executeCodeCommand(codeArgs);
+          executeCodeCommand(codeArgs, sessionConfig);
         } else {
           console.error(
             "Service startup timeout, please manually run `ccr start` to start the service"
@@ -148,9 +205,8 @@ async function main() {
           process.exit(1);
         }
       } else {
-        // Join all code arguments into a single string to preserve spaces within quotes
         const codeArgs = process.argv.slice(3);
-        executeCodeCommand(codeArgs);
+        executeCodeCommand(codeArgs, sessionConfig);
       }
       break;
     case "ui":
@@ -277,39 +333,103 @@ async function main() {
       console.log(`claude-code-router version: ${version}`);
       break;
     case "restart":
-      // Stop the service if it's running
-      try {
-        const pid = parseInt(readFileSync(PID_FILE, "utf-8"));
-        process.kill(pid);
-        cleanupPidFile();
-        if (existsSync(REFERENCE_COUNT_FILE)) {
-          try {
-            fs.unlinkSync(REFERENCE_COUNT_FILE);
-          } catch (e) {
-            // Ignore cleanup errors
+      if (sessionConfig) {
+        const { cleanupSessionPid, getSessionPid } = require("./utils/sessionManager");
+
+        // Stop the session if it's running
+        try {
+          const pid = getSessionPid(sessionConfig);
+          if (pid) {
+            process.kill(pid);
+            cleanupSessionPid(sessionConfig);
+            if (existsSync(sessionConfig.referenceCountFile)) {
+              try {
+                fs.unlinkSync(sessionConfig.referenceCountFile);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }
+            console.log(`Session ${sessionConfig.sessionId} has been stopped.`);
           }
+        } catch (e) {
+          console.log("Session was not running or failed to stop.");
+          cleanupSessionPid(sessionConfig);
         }
-        console.log("claude code router service has been stopped.");
-      } catch (e) {
-        console.log("Service was not running or failed to stop.");
-        cleanupPidFile();
+
+        // Start the session again
+        console.log(`Starting session ${sessionConfig.sessionId}...`);
+        const cliPath = join(__dirname, "cli.js");
+        const env = { ...process.env };
+
+        if (modelPreference) {
+          env.CCR_MODEL_PREFERENCE = modelPreference;
+        }
+
+        const startProcess = spawn("node", [cliPath, "start"], {
+          detached: true,
+          stdio: "ignore",
+          env
+        });
+
+        startProcess.on("error", (error) => {
+          console.error("Failed to start session:", error);
+          process.exit(1);
+        });
+
+        startProcess.unref();
+        console.log(`✅ Session ${sessionConfig.sessionId} started successfully.`);
+      } else {
+        // Default restart behavior
+        try {
+          const pid = parseInt(readFileSync(PID_FILE, "utf-8"));
+          process.kill(pid);
+          cleanupPidFile();
+          if (existsSync(REFERENCE_COUNT_FILE)) {
+            try {
+              fs.unlinkSync(REFERENCE_COUNT_FILE);
+            } catch (e) {
+              // Ignore cleanup errors
+            }
+          }
+          console.log("claude code router service has been stopped.");
+        } catch (e) {
+          console.log("Service was not running or failed to stop.");
+          cleanupPidFile();
+        }
+
+        console.log("Starting claude code router service...");
+        const cliPath = join(__dirname, "cli.js");
+        const startProcess = spawn("node", [cliPath, "start"], {
+          detached: true,
+          stdio: "ignore",
+        });
+
+        startProcess.on("error", (error) => {
+          console.error("Failed to start service:", error);
+          process.exit(1);
+        });
+
+        startProcess.unref();
+        console.log("✅ Service started successfully in the background.");
       }
-
-      // Start the service again in the background
-      console.log("Starting claude code router service...");
-      const cliPath = join(__dirname, "cli.js");
-      const startProcess = spawn("node", [cliPath, "start"], {
-        detached: true,
-        stdio: "ignore",
-      });
-
-      startProcess.on("error", (error) => {
-        console.error("Failed to start service:", error);
-        process.exit(1);
-      });
-
-      startProcess.unref();
-      console.log("✅ Service started successfully in the background.");
+      break;
+    case "sessions":
+      const sessions = await getAllActiveSessions();
+      if (sessions.length === 0) {
+        console.log("No active sessions.");
+      } else {
+        console.log("\nActive Sessions:");
+        console.log("================");
+        for (const session of sessions) {
+          const label = session.modelPreference || 'default';
+          console.log(`\nSession ID: ${session.sessionId}`);
+          console.log(`Model: ${label}`);
+          console.log(`Port: ${session.port}`);
+          console.log(`PID: ${require("./utils/sessionManager").getSessionPid(session)}`);
+          console.log(`Reference Count: ${require("./utils/sessionManager").getSessionReferenceCount(session)}`);
+        }
+        console.log();
+      }
       break;
     case "-h":
     case "help":

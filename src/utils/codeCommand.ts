@@ -5,13 +5,14 @@ import {
   decrementReferenceCount,
   incrementReferenceCount,
 } from "./processCheck";
-import {HOME_DIR} from "../constants";
-import {join} from "path";
+import { HOME_DIR } from "../constants";
+import { join } from "path";
+import { type SessionConfig, incrementSessionReferenceCount, decrementSessionReferenceCount } from "./sessionManager";
 
-export async function executeCodeCommand(args: string[] = []) {
+export async function executeCodeCommand(args: string[] = [], sessionConfig?: SessionConfig) {
   // Set environment variables
   const config = await readConfigFile();
-  const port = config.PORT || 3456;
+  const port = sessionConfig?.port || config.PORT || 3456;
   const env: Record<string, string> = {
     ...process.env,
     ANTHROPIC_AUTH_TOKEN: config?.APIKEY || "test",
@@ -53,7 +54,11 @@ export async function executeCodeCommand(args: string[] = []) {
   // }
 
   // Increment reference count when command starts
-  incrementReferenceCount();
+  if (sessionConfig) {
+    incrementSessionReferenceCount(sessionConfig);
+  } else {
+    incrementReferenceCount();
+  }
 
   // Execute claude command
   const claudePath = config?.CLAUDE_PATH || process.env.CLAUDE_PATH || "claude";
@@ -89,13 +94,23 @@ export async function executeCodeCommand(args: string[] = []) {
     console.log(
       "Make sure Claude Code is installed: npm install -g @anthropic-ai/claude-code"
     );
-    decrementReferenceCount();
+    if (sessionConfig) {
+      decrementSessionReferenceCount(sessionConfig);
+    } else {
+      decrementReferenceCount();
+    }
     process.exit(1);
   });
 
   claudeProcess.on("close", (code) => {
-    decrementReferenceCount();
-    closeService();
+    if (sessionConfig) {
+      decrementSessionReferenceCount(sessionConfig);
+      // For sessions, we don't close the service automatically
+      // as other claude instances might be using it
+    } else {
+      decrementReferenceCount();
+      closeService();
+    }
     process.exit(code || 0);
   });
 }

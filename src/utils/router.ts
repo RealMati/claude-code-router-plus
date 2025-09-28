@@ -69,6 +69,50 @@ const getUseModel = async (
   config: any,
   lastUsage?: Usage | undefined
 ) => {
+  // Check for environment-based model override first
+  if (config.OVERRIDE_MODEL || process.env.CCR_MODEL_PREFERENCE) {
+    const overrideModel = config.OVERRIDE_MODEL || process.env.CCR_MODEL_PREFERENCE;
+    req.log.info(`Using environment override model: ${overrideModel}`);
+
+    // Parse the override format (provider,model or provider/model)
+    if (overrideModel.includes(",") || overrideModel.includes("/")) {
+      const separator = overrideModel.includes(",") ? "," : "/";
+      const [provider, model] = overrideModel.split(separator);
+
+      // Validate that the provider and model exist in config
+      const finalProvider = config.Providers?.find(
+        (p: any) => p.name.toLowerCase() === provider.toLowerCase()
+      );
+
+      if (finalProvider) {
+        const finalModel = finalProvider.models?.find(
+          (m: any) => m.toLowerCase() === model.toLowerCase()
+        );
+
+        if (finalModel) {
+          req.log.info(`Validated override: ${finalProvider.name},${finalModel}`);
+          return `${finalProvider.name},${finalModel}`;
+        } else {
+          req.log.warn(`Override model '${model}' not found in provider '${provider}', falling back to default routing`);
+        }
+      } else {
+        req.log.warn(`Override provider '${provider}' not found, falling back to default routing`);
+      }
+    } else {
+      // Just a model name, try to find it in any provider
+      for (const provider of config.Providers || []) {
+        const foundModel = provider.models?.find(
+          (m: any) => m.toLowerCase() === overrideModel.toLowerCase()
+        );
+        if (foundModel) {
+          req.log.info(`Found override model in provider ${provider.name}: ${provider.name},${foundModel}`);
+          return `${provider.name},${foundModel}`;
+        }
+      }
+      req.log.warn(`Override model '${overrideModel}' not found in any provider, falling back to default routing`);
+    }
+  }
+
   if (req.body.model.includes(",")) {
     const [provider, model] = req.body.model.split(",");
     const finalProvider = config.Providers.find(

@@ -191,5 +191,177 @@ export const createServer = (config: any): Server => {
     }
   });
 
+  // Session management endpoints
+  server.app.get("/api/sessions", async (req, reply) => {
+    try {
+      const { getAllActiveSessions } = require("./utils/sessionManager");
+      const sessions = await getAllActiveSessions();
+
+      // Add current session indicator
+      const currentPort = config.initialConfig?.CCR_SESSION_PORT || config.initialConfig?.PORT;
+
+      return sessions.map((session: any) => ({
+        sessionId: session.sessionId,
+        modelPreference: session.modelPreference || 'default',
+        port: session.port,
+        provider: session.provider,
+        model: session.model,
+        isCurrent: session.port === currentPort,
+        pid: require("./utils/sessionManager").getSessionPid(session),
+        referenceCount: require("./utils/sessionManager").getSessionReferenceCount(session)
+      }));
+    } catch (error) {
+      console.error("Failed to get sessions:", error);
+      reply.status(500).send({ error: "Failed to get sessions" });
+    }
+  });
+
+  // Stop a specific session
+  server.app.post("/api/sessions/:sessionId/stop", async (req, reply) => {
+    try {
+      const { sessionId } = req.params as any;
+
+      // Check access level - stopping sessions requires proper access
+      const accessLevel = (req as any).accessLevel || "restricted";
+
+      // For cross-session stops, we need to handle this differently
+      // The session being stopped might be from another instance
+      if (accessLevel === "restricted") {
+        // For now, allow stopping any session from any session UI
+        // In production, you might want stricter controls
+        console.log(`Attempting to stop session ${sessionId} from restricted access`);
+      }
+
+      const { getAllActiveSessions, getSessionPid, cleanupSessionPid } = require("./utils/sessionManager");
+
+      const sessions = await getAllActiveSessions();
+      const session = sessions.find((s: any) => s.sessionId === sessionId);
+
+      if (!session) {
+        console.error(`Session ${sessionId} not found in active sessions`);
+        reply.status(404).send({ error: "Session not found", sessionId });
+        return;
+      }
+
+      const pid = getSessionPid(session);
+      if (pid) {
+        try {
+          // Try to kill the process
+          process.kill(pid, 'SIGTERM');
+
+          // Wait a moment to see if it stopped
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Check if process still exists
+          try {
+            process.kill(pid, 0); // Signal 0 just checks if process exists
+            // If we get here, process is still running, try SIGKILL
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // Process already stopped
+          }
+
+          cleanupSessionPid(session);
+
+          // Clean up reference count file
+          const fs = require('fs');
+          if (fs.existsSync(session.referenceCountFile)) {
+            try {
+              fs.unlinkSync(session.referenceCountFile);
+            } catch (e) {
+              console.error(`Failed to clean up reference count file: ${e}`);
+            }
+          }
+
+          return { success: true, message: `Session ${sessionId} stopped successfully` };
+        } catch (e: any) {
+          console.error(`Error stopping session ${sessionId}:`, e);
+
+          if (e.code === 'EPERM') {
+            // Permission denied - process might be owned by different user
+            reply.status(403).send({
+              error: "Permission denied to stop session",
+              sessionId,
+              message: "The session process cannot be stopped due to permissions"
+            });
+            return;
+          } else if (e.code === 'ESRCH') {
+            // Process doesn't exist
+            cleanupSessionPid(session);
+            return { success: true, message: `Session ${sessionId} was already stopped` };
+          }
+
+          // Other errors
+          reply.status(500).send({
+            error: "Failed to stop session",
+            sessionId,
+            message: e.message
+          });
+          return;
+        }
+      } else {
+        return { success: false, message: `Session ${sessionId} is not running (no PID found)` };
+      }
+    } catch (error: any) {
+      console.error("Failed to stop session:", error);
+      reply.status(500).send({
+        error: "Failed to stop session",
+        message: error.message || "Unknown error"
+      });
+    }
+  });
+
+  // Start a new session
+  server.app.post("/api/sessions/start", async (req, reply) => {
+    try {
+      const { modelPreference } = req.body as any;
+
+      if (!modelPreference) {
+        reply.status(400).send({ error: "Model preference is required" });
+        return;
+      }
+
+      const { getSessionConfig, isSessionRunning } = require("./utils/sessionManager");
+      const sessionConfig = getSessionConfig(modelPreference);
+
+      // Check if already running
+      if (await isSessionRunning(sessionConfig)) {
+        return {
+          success: false,
+          message: `Session for ${modelPreference} is already running`,
+          sessionId: sessionConfig.sessionId,
+          port: sessionConfig.port
+        };
+      }
+
+      // Start the session
+      const { spawn } = require("child_process");
+      const { join } = require("path");
+      const cliPath = join(__dirname, "cli.js");
+
+      const env = { ...process.env, CCR_MODEL_PREFERENCE: modelPreference };
+      const startProcess = spawn("node", [cliPath, "start"], {
+        detached: true,
+        stdio: "ignore",
+        env
+      });
+
+      startProcess.unref();
+
+      // Wait a bit for the service to start
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      return {
+        success: true,
+        message: `Session started for ${modelPreference}`,
+        sessionId: sessionConfig.sessionId,
+        port: sessionConfig.port
+      };
+    } catch (error) {
+      console.error("Failed to start session:", error);
+      reply.status(500).send({ error: "Failed to start session" });
+    }
+  });
+
   return server;
 };

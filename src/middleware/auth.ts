@@ -15,12 +15,22 @@ export const apiKeyAuth =
         `http://127.0.0.1:${config.PORT || 3456}`,
         `http://localhost:${config.PORT || 3456}`,
       ];
-      if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) {
-        reply.status(403).send("CORS not allowed for this origin");
-        return;
-      } else {
-        reply.header('Access-Control-Allow-Origin', `http://127.0.0.1:${config.PORT || 3456}`);
-        reply.header('Access-Control-Allow-Origin', `http://localhost:${config.PORT || 3456}`);
+
+      // Allow cross-session requests from any local port (for session management)
+      const origin = req.headers.origin;
+      if (origin) {
+        const isLocalOrigin = origin.startsWith('http://127.0.0.1:') ||
+                             origin.startsWith('http://localhost:');
+
+        if (isLocalOrigin) {
+          // Allow any local port for session management
+          reply.header('Access-Control-Allow-Origin', origin);
+          reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          reply.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+        } else if (!allowedOrigins.includes(origin)) {
+          reply.status(403).send("CORS not allowed for this origin");
+          return;
+        }
       }
       return done();
     }

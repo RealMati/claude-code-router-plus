@@ -285,31 +285,34 @@ async function main() {
             writeConfigFile,
             backupConfigFile,
           } = require("./utils");
+          const { CONFIG_FILE } = require("./constants");
 
           try {
             // Initialize directories
             await initDir();
 
-            // Backup existing config file if it exists
-            const backupPath = await backupConfigFile();
-            if (backupPath) {
+            // Check if config file already exists
+            const configExists = await fs.promises.access(CONFIG_FILE).then(() => true).catch(() => false);
+
+            if (!configExists) {
+              // Only create a minimal default config file if it doesn't exist
+              await writeConfigFile({
+                PORT: 3456,
+                Providers: [],
+                Router: {},
+              });
               console.log(
-                `Backed up existing configuration file to ${backupPath}`
+                "Created minimal default configuration file at ~/.claude-code-router/config.json"
+              );
+              console.log(
+                "Please edit this file with your actual configuration."
+              );
+            } else {
+              // Config exists but service won't start - likely a config error
+              console.log(
+                "Configuration file exists but service failed to start. Please check your configuration."
               );
             }
-
-            // Create a minimal default config file
-            await writeConfigFile({
-              PORT: 3456,
-              Providers: [],
-              Router: {},
-            });
-            console.log(
-              "Created minimal default configuration file at ~/.claude-code-router/config.json"
-            );
-            console.log(
-              "Please edit this file with your actual configuration."
-            );
 
             // Try starting the service again
             const restartProcess = spawn("node", [cliPath, "start"], {

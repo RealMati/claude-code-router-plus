@@ -27,6 +27,13 @@
 - **GitHub Actions Integration**: Trigger Claude Code tasks in your GitHub workflows.
 - **Plugin System**: Extend functionality with custom transformers.
 
+### ✨ New in claude-code-router-plus
+
+- **Multi-Session Support**: Run multiple router instances simultaneously with different model configurations.
+- **Model Validation**: Automatic validation and console warnings when specified models don't exist.
+- **Dynamic Port Allocation**: Each session gets its own port automatically.
+- **Session Management**: Track and manage multiple active sessions easily.
+
 ## 🚀 Getting Started
 
 ### 1. Installation
@@ -37,7 +44,25 @@ First, ensure you have [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 npm install -g @anthropic-ai/claude-code
 ```
 
-Then, install Claude Code Router:
+#### Option A: Install from source (Recommended for claude-code-router-plus)
+
+Clone and build the enhanced version:
+
+```shell
+# Clone the repository
+git clone https://github.com/RealMati/claude-code-router-plus.git
+cd claude-code-router-plus
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# The CLI is now available at ./dist/cli.js
+```
+
+#### Option B: Install from npm (Original version)
 
 ```shell
 npm install -g @musistudio/claude-code-router
@@ -205,19 +230,78 @@ Here is a comprehensive example:
 
 ### 3. Running Claude Code with the Router
 
-Start Claude Code using the router:
+#### Using the built version (from source installation):
 
 ```shell
-ccr code
+# Start the service
+./dist/cli.js start
+
+# Stop the service
+./dist/cli.js stop
+
+# Check service status
+./dist/cli.js status
+
+# Run Claude Code through the router
+./dist/cli.js code "Your prompt here"
+
+# Open the UI
+./dist/cli.js ui
+
+# List all active sessions
+./dist/cli.js sessions
+
+# Restart the service
+./dist/cli.js restart
 ```
 
-> **Note**: After modifying the configuration file, you need to restart the service for the changes to take effect:
->
-> ```shell
-> ccr restart
-> ```
+#### Using the global installation:
 
-### 4. UI Mode
+```shell
+ccr start    # Start the service
+ccr stop     # Stop the service
+ccr status   # Check status
+ccr code     # Run Claude Code
+ccr ui       # Open UI
+ccr sessions # List sessions
+ccr restart  # Restart service
+```
+
+> **Note**: After modifying the configuration file, you need to restart the service for the changes to take effect.
+
+### 4. Multi-Session Support (claude-code-router-plus)
+
+Run multiple router instances with different model configurations:
+
+```shell
+# Start a session with GPT-5
+export CCR_MODEL_PREFERENCE="openrouter,openai/gpt-5"
+./dist/cli.js start
+
+# Start another session with Gemini
+export CCR_MODEL_PREFERENCE="openrouter,google/gemini-2.5-pro"
+./dist/cli.js start
+
+# List all active sessions
+./dist/cli.js sessions
+
+# Run code with a specific model
+export CCR_MODEL_PREFERENCE="openrouter,openai/gpt-5"
+./dist/cli.js code "Your prompt"
+
+# Open UI for specific session
+export CCR_MODEL_PREFERENCE="openrouter,google/gemini-2.5-pro"
+./dist/cli.js ui
+```
+
+When a model doesn't exist, you'll see helpful warnings:
+```
+⚠️  Warning: Model 'nonexistent_model' not found in provider 'openrouter'
+   Available models: gpt-5, gemini-2.5-pro, claude-3.5-sonnet, ...
+   Falling back to default: openrouter,openai/gpt-5
+```
+
+### 5. UI Mode
 
 For a more intuitive experience, you can use the UI mode to manage your configuration:
 

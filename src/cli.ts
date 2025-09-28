@@ -79,6 +79,14 @@ async function main() {
   if (['start', 'stop', 'status', 'code'].includes(command)) {
     sessionConfig = getSessionConfig(modelPreference);
     isRunning = await isSessionRunning(sessionConfig);
+  } else if (command === 'ui') {
+    // For UI command, check if ANY service is running (default or session)
+    isRunning = await isServiceRunning();
+    if (!isRunning) {
+      // Check if there are any active sessions
+      const activeSessions = await getAllActiveSessions();
+      isRunning = activeSessions.length > 0;
+    }
   } else {
     isRunning = await isServiceRunning();
   }
@@ -210,6 +218,47 @@ async function main() {
       }
       break;
     case "ui":
+      // Check if specific session is requested via CCR_MODEL_PREFERENCE
+      if (modelPreference) {
+        const requestedSessionConfig = getSessionConfig(modelPreference);
+        const isRequestedSessionRunning = await isSessionRunning(requestedSessionConfig);
+
+        if (isRequestedSessionRunning) {
+          // Open UI for the requested session
+          const uiUrl = `http://127.0.0.1:${requestedSessionConfig.port}/ui/`;
+          console.log(`Opening UI for session: ${requestedSessionConfig.sessionId} (${requestedSessionConfig.modelPreference})`);
+          console.log(`Opening UI at ${uiUrl}`);
+
+          // Open URL in browser based on platform
+          const platform = process.platform;
+          let openCommand = "";
+
+          if (platform === "win32") {
+            openCommand = `start ${uiUrl}`;
+          } else if (platform === "darwin") {
+            openCommand = `open ${uiUrl}`;
+          } else if (platform === "linux") {
+            openCommand = `xdg-open ${uiUrl}`;
+          } else {
+            console.error("Unsupported platform for opening browser");
+            process.exit(1);
+          }
+
+          exec(openCommand, (error) => {
+            if (error) {
+              console.error("Failed to open browser:", error.message);
+              process.exit(1);
+            }
+          });
+          break;
+        } else {
+          console.log(`Session for '${modelPreference}' is not running.`);
+          console.log(`Starting session...`);
+          // Will continue to start the service below
+          isRunning = false;
+        }
+      }
+
       // Check if service is running
       if (!isRunning) {
         console.log("Service not running, starting service...");
@@ -296,7 +345,35 @@ async function main() {
       }
 
       // Get service info and open UI
-      const serviceInfo = await getServiceInfo();
+      let serviceInfo;
+      let selectedSession = null;
+
+      // Check if there are active sessions to get the correct endpoint
+      const activeSessions = await getAllActiveSessions();
+
+      if (activeSessions.length > 1) {
+        // Multiple sessions running, show them and use the first one
+        console.log("\nMultiple sessions detected:");
+        activeSessions.forEach((session, index) => {
+          const label = session.modelPreference || 'default';
+          console.log(`  ${index + 1}. Session ${session.sessionId} (${label}) on port ${session.port}`);
+        });
+        selectedSession = activeSessions[0];
+        console.log(`\nOpening UI for session: ${selectedSession.sessionId} (${selectedSession.modelPreference || 'default'})`);
+        console.log(`To specify a different session, use: CCR_MODEL_PREFERENCE="provider,model" ccr ui\n`);
+        serviceInfo = {
+          endpoint: `http://127.0.0.1:${selectedSession.port}`
+        };
+      } else if (activeSessions.length === 1) {
+        // Single session running
+        selectedSession = activeSessions[0];
+        serviceInfo = {
+          endpoint: `http://127.0.0.1:${selectedSession.port}`
+        };
+      } else {
+        // No sessions, try default service
+        serviceInfo = await getServiceInfo();
+      }
 
       // Add temporary API key as URL parameter if successfully generated
       const uiUrl = `${serviceInfo.endpoint}/ui/`;

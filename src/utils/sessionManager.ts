@@ -23,8 +23,25 @@ export interface ModelPreference {
 }
 
 const SESSIONS_DIR = join(HOME_DIR, 'sessions');
-const BASE_PORT = 3456;
-const MAX_PORT_RANGE = 100;
+
+// Get port configuration from config file or use defaults
+function getPortConfig(): { basePort: number; maxPortRange: number } {
+  try {
+    const configPath = join(HOME_DIR, 'config.json');
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      return {
+        basePort: config.BASE_PORT || config.PORT || 3456,
+        maxPortRange: config.PORT_RANGE || 100
+      };
+    }
+  } catch (e) {
+    // Ignore errors and use defaults
+  }
+  return { basePort: 3456, maxPortRange: 100 };
+}
+
+const { basePort: BASE_PORT, maxPortRange: MAX_PORT_RANGE } = getPortConfig();
 
 export function parseModelPreference(preference: string): ModelPreference {
   if (!preference || preference.trim() === '') {

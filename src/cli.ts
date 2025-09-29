@@ -72,7 +72,7 @@ async function waitForService(
 async function main() {
   // Check for model preference in environment
   const modelPreference = process.env.CCR_MODEL_PREFERENCE || '';
-  let sessionConfig: SessionConfig | null = null;
+  let sessionConfig: SessionConfig | undefined = undefined;
   let isRunning = false;
 
   // For session-aware commands, get the session config
@@ -349,7 +349,7 @@ async function main() {
 
       // Get service info and open UI
       let serviceInfo;
-      let selectedSession = null;
+      let selectedSession = undefined;
 
       // Check if there are active sessions to get the correct endpoint
       const activeSessions = await getAllActiveSessions();

@@ -12,7 +12,7 @@ import { MonitoringModal } from "@/components/MonitoringModal";
 import { Button } from "@/components/ui/button";
 import { useConfig } from "@/components/ConfigProvider";
 import { api } from "@/lib/api";
-import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server, Activity } from "lucide-react";
+import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server, Activity, FlaskConical } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -290,6 +290,9 @@ function App() {
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setIsMonitoringOpen(true)} className="transition-all-ease hover:scale-110">
             <Activity className="h-5 w-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => navigate('/benchmark')} className="transition-all-ease hover:scale-110">
+            <FlaskConical className="h-5 w-5" />
           </Button>
           <Popover>
             <PopoverTrigger asChild>

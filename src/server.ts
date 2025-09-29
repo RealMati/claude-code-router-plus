@@ -406,5 +406,212 @@ export const createServer = (config: any): Server => {
     }
   });
 
+  // Directory browser endpoint
+  server.app.get("/api/browse-directory", async (req, reply) => {
+    try {
+      const { path: dirPath = homedir() } = req.query as { path?: string };
+      const fs = require("fs");
+      const path = require("path");
+
+      // Resolve the path to handle ~ and relative paths
+      let resolvedPath = dirPath;
+      if (dirPath.startsWith("~")) {
+        resolvedPath = path.join(homedir(), dirPath.slice(1));
+      }
+      resolvedPath = path.resolve(resolvedPath);
+
+      // Check if path exists and is a directory
+      if (!existsSync(resolvedPath)) {
+        return reply.status(404).send({
+          success: false,
+          message: "Directory not found"
+        });
+      }
+
+      const stats = statSync(resolvedPath);
+      if (!stats.isDirectory()) {
+        return reply.status(400).send({
+          success: false,
+          message: "Path is not a directory"
+        });
+      }
+
+      // Read directory contents
+      const items = readdirSync(resolvedPath);
+      const directories = [];
+
+      for (const item of items) {
+        // Skip hidden files/folders unless it's the home directory
+        if (item.startsWith(".") && item !== "..") continue;
+
+        try {
+          const itemPath = path.join(resolvedPath, item);
+          const itemStats = statSync(itemPath);
+
+          if (itemStats.isDirectory()) {
+            directories.push({
+              name: item,
+              path: itemPath,
+              type: "directory"
+            });
+          }
+        } catch (err) {
+          // Skip items we can't access
+          continue;
+        }
+      }
+
+      // Sort directories alphabetically
+      directories.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+      // Add parent directory option if not at root
+      if (resolvedPath !== "/" && resolvedPath !== homedir()) {
+        directories.unshift({
+          name: "..",
+          path: path.dirname(resolvedPath),
+          type: "parent"
+        });
+      }
+
+      return {
+        success: true,
+        currentPath: resolvedPath,
+        directories,
+        homePath: homedir()
+      };
+    } catch (error) {
+      console.error("Failed to browse directory:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Failed to browse directory: " + (error as Error).message
+      });
+    }
+  });
+
+  // Benchmark endpoint for launching multiple terminals
+  server.app.post("/api/benchmark/launch", async (req, reply) => {
+    try {
+      const { projectPath, prompt, models } = req.body as {
+        projectPath: string;
+        prompt: string;
+        models: Array<{ provider: string; model: string; selected: boolean }>;
+      };
+
+      // Validate inputs
+      if (!projectPath || !prompt || !models || models.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: "Missing required parameters"
+        });
+      }
+
+      const selectedModels = models.filter(m => m.selected);
+      if (selectedModels.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: "No models selected"
+        });
+      }
+
+      const { spawn } = require("child_process");
+      const { platform } = require("os");
+      const path = require("path");
+      const commands: string[] = [];
+      let launched = 0;
+
+      // Get the CLI path
+      const cliPath = path.join(__dirname, "cli.js");
+
+      // Launch terminals for each selected model
+      for (const model of selectedModels) {
+        const modelPreference = `${model.provider},${model.model}`;
+        const command = `export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${prompt}"`;
+        commands.push(command);
+
+        // Platform-specific terminal launching
+        if (platform() === "darwin") {
+          // macOS - use AppleScript to open Terminal
+          // Escape single quotes in the path and command
+          const escapedPath = projectPath.replace(/'/g, "'\\''");
+          const escapedPrompt = prompt.replace(/'/g, "'\\''");
+          const terminalCommand = `cd '${escapedPath}' && export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${escapedPrompt}"`;
+
+          const appleScript = `tell application "Terminal" to do script "${terminalCommand.replace(/"/g, '\\"')}"`;
+
+          const proc = spawn("osascript", ["-e", appleScript], {
+            detached: true,
+            stdio: "ignore"
+          });
+          proc.unref();
+
+          launched++;
+        } else if (platform() === "win32") {
+          // Windows - use cmd.exe with start command
+          const winCommand = `cd /d "${projectPath}" && set CCR_MODEL_PREFERENCE=${modelPreference} && node "${cliPath}" code "${prompt}"`;
+
+          spawn("cmd.exe", ["/c", "start", "cmd.exe", "/k", winCommand], {
+            detached: true,
+            stdio: "ignore",
+            shell: true
+          }).unref();
+
+          launched++;
+        } else {
+          // Linux - try common terminal emulators
+          const terminals = ["gnome-terminal", "konsole", "xterm", "x-terminal-emulator"];
+          let terminalLaunched = false;
+
+          for (const terminal of terminals) {
+            try {
+              if (terminal === "gnome-terminal") {
+                spawn(terminal, ["--", "bash", "-c", `cd '${projectPath}' && ${command}; exec bash`], {
+                  detached: true,
+                  stdio: "ignore"
+                }).unref();
+              } else if (terminal === "konsole") {
+                spawn(terminal, ["-e", "bash", "-c", `cd '${projectPath}' && ${command}; exec bash`], {
+                  detached: true,
+                  stdio: "ignore"
+                }).unref();
+              } else {
+                spawn(terminal, ["-e", `bash -c "cd '${projectPath}' && ${command}; exec bash"`], {
+                  detached: true,
+                  stdio: "ignore"
+                }).unref();
+              }
+
+              terminalLaunched = true;
+              launched++;
+              break;
+            } catch (err) {
+              // Try next terminal
+              continue;
+            }
+          }
+
+          if (!terminalLaunched) {
+            console.error(`Could not find terminal emulator for model ${modelPreference}`);
+          }
+        }
+
+        // Small delay between launching terminals to avoid overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      return {
+        success: true,
+        message: `Launched ${launched} terminal${launched > 1 ? 's' : ''}`,
+        launched,
+        commands
+      };
+    } catch (error) {
+      console.error("Failed to launch benchmark:", error);
+      return reply.status(500).send({
+        success: false,
+        message: "Failed to launch benchmark: " + (error as Error).message
+      });
+    }
+  });
+
   return server;
 };

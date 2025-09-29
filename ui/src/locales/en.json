@@ -101,7 +101,6 @@
     "name_required": "Name is required",
     "name_duplicate": "A provider with this name already exists",
     "search": "Search providers..."
-
   },
   "router": {
     "title": "Router",
@@ -224,5 +223,37 @@
     "worker_init_failed": "Failed to initialize worker",
     "grouping_not_supported": "Log grouping not supported by server",
     "back": "Back"
+  },
+  "monitoring": {
+    "Monitoring Dashboard": "Monitoring Dashboard",
+    "Real-time request tracking and metrics": "Real-time request tracking and metrics",
+    "Auto-refresh ON": "Auto-refresh ON",
+    "Auto-refresh OFF": "Auto-refresh OFF",
+    "Export Logs": "Export Logs",
+    "Total Requests": "Total Requests",
+    "Input Tokens": "Input Tokens",
+    "Output Tokens": "Output Tokens",
+    "Error Rate": "Error Rate",
+    "Request Logs": "Request Logs",
+    "Session Metrics": "Session Metrics",
+    "Model Usage": "Model Usage",
+    "Recent Requests": "Recent Requests",
+    "Clear Logs": "Clear Logs",
+    "No requests logged yet": "No requests logged yet",
+    "Session Performance Metrics": "Session Performance Metrics",
+    "No metrics available": "No metrics available",
+    "Requests": "Requests",
+    "Avg Response Time": "Avg Response Time",
+    "Total Tokens": "Total Tokens",
+    "Errors": "Errors",
+    "Model & Provider Usage": "Model & Provider Usage",
+    "Providers": "Providers",
+    "Models": "Models",
+    "Failed to load monitoring data": "Failed to load monitoring data",
+    "Logs cleared successfully": "Logs cleared successfully",
+    "Failed to clear logs": "Failed to clear logs",
+    "Metrics reset successfully": "Metrics reset successfully",
+    "Failed to reset metrics": "Failed to reset metrics",
+    "Session warning": "⚠️ This dashboard only shows metrics for the current session"
   }
 }

@@ -8,10 +8,11 @@ import { Router } from "@/components/Router";
 import { JsonEditor } from "@/components/JsonEditor";
 import { LogViewer } from "@/components/LogViewer";
 import SessionManager from "./SessionManager";
+import { MonitoringModal } from "@/components/MonitoringModal";
 import { Button } from "@/components/ui/button";
 import { useConfig } from "@/components/ConfigProvider";
 import { api } from "@/lib/api";
-import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server } from "lucide-react";
+import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server, Activity } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -36,6 +37,7 @@ function App() {
   const [isJsonEditorOpen, setIsJsonEditorOpen] = useState(false);
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false);
   const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false);
+  const [isMonitoringOpen, setIsMonitoringOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   // 版本检查状态
@@ -286,6 +288,9 @@ function App() {
           <Button variant="ghost" size="icon" onClick={() => setIsSessionManagerOpen(true)} className="transition-all-ease hover:scale-110">
             <Server className="h-5 w-5" />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => setIsMonitoringOpen(true)} className="transition-all-ease hover:scale-110">
+            <Activity className="h-5 w-5" />
+          </Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" className="transition-all-ease hover:scale-110">
@@ -414,11 +419,15 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MonitoringModal
+        isOpen={isMonitoringOpen}
+        onClose={() => setIsMonitoringOpen(false)}
+      />
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>

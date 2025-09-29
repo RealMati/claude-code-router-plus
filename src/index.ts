@@ -22,6 +22,7 @@ import JSON5 from "json5";
 import { IAgent } from "./agents/type";
 import agentsManager from "./agents";
 import { EventEmitter } from "node:events";
+import { monitoringService } from "./utils/monitoring";
 
 const event = new EventEmitter()
 
@@ -248,6 +249,10 @@ async function run(options: RunOptions = {}) {
   });
   server.addHook("preHandler", async (req, reply) => {
     if (req.url.startsWith("/v1/messages")) {
+      // Start monitoring this request
+      const requestId = monitoringService.startRequest(req);
+      (req as any).monitoringId = requestId;
+
       const useAgents = []
 
       for (const agent of agentsManager.getAllAgents()) {
@@ -281,9 +286,22 @@ async function run(options: RunOptions = {}) {
         config,
         event
       });
+
+      // Update monitoring with routing info
+      if ((req as any).monitoringId && req.body?.model) {
+        const modelParts = req.body.model.split(',');
+        monitoringService.updateRequest((req as any).monitoringId, {
+          provider: modelParts.length === 2 ? modelParts[0] : undefined,
+          model: modelParts.length === 2 ? modelParts[1] : req.body.model
+        });
+      }
     }
   });
   server.addHook("onError", async (request, reply, error) => {
+    // Log error to monitoring
+    if ((request as any).monitoringId) {
+      monitoringService.endRequest((request as any).monitoringId, null, error);
+    }
     event.emit('onError', request, reply, error);
   })
   server.addHook("onSend", (req, reply, payload, done) => {
@@ -431,6 +449,14 @@ async function run(options: RunOptions = {}) {
               try {
                 const message = JSON.parse(str);
                 sessionUsageCache.put(req.sessionId, message.usage);
+
+                // Update monitoring with token usage
+                if ((req as any).monitoringId && message.usage) {
+                  monitoringService.updateRequest((req as any).monitoringId, {
+                    inputTokens: message.usage.input_tokens,
+                    outputTokens: message.usage.output_tokens
+                  });
+                }
               } catch {}
             }
           } catch (readError: any) {
@@ -443,8 +469,21 @@ async function run(options: RunOptions = {}) {
             reader.releaseLock();
           }
         }
-        read(clonedStream);
+        read(clonedStream).finally(() => {
+          // Complete monitoring when stream ends
+          if ((req as any).monitoringId) {
+            monitoringService.endRequest((req as any).monitoringId, { body: req.body });
+          }
+        });
         return done(null, originalStream)
+      }
+      // Non-streaming response, complete monitoring
+      if ((req as any).monitoringId && payload.usage) {
+        monitoringService.updateRequest((req as any).monitoringId, {
+          inputTokens: payload.usage?.input_tokens,
+          outputTokens: payload.usage?.output_tokens
+        });
+        monitoringService.endRequest((req as any).monitoringId, { body: payload });
       }
       sessionUsageCache.put(req.sessionId, payload.usage);
       if (typeof payload ==='object') {

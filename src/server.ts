@@ -5,9 +5,14 @@ import { join } from "path";
 import fastifyStatic from "@fastify/static";
 import { readdirSync, statSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { homedir } from "os";
+import { monitoringService } from "./utils/monitoring";
+import websocket from "@fastify/websocket";
 
 export const createServer = (config: any): Server => {
   const server = new Server(config);
+
+  // Register WebSocket support
+  server.app.register(websocket);
 
   // Add endpoint to read config.json with access control
   server.app.get("/api/config", async (req, reply) => {
@@ -214,6 +219,44 @@ export const createServer = (config: any): Server => {
       console.error("Failed to get sessions:", error);
       reply.status(500).send({ error: "Failed to get sessions" });
     }
+  });
+
+  // Monitoring endpoints
+  server.app.get("/api/monitoring/logs", async (req, reply) => {
+    const { sessionId, limit } = req.query as any;
+    const logs = monitoringService.getRecentRequests(sessionId, parseInt(limit) || 100);
+    return { logs };
+  });
+
+  server.app.get("/api/monitoring/metrics", async (req, reply) => {
+    const { sessionId } = req.query as any;
+    if (sessionId) {
+      const metrics = monitoringService.getSessionMetrics(sessionId);
+      return { metrics };
+    } else {
+      const metrics = monitoringService.getAllSessionMetrics();
+      return { metrics };
+    }
+  });
+
+  server.app.delete("/api/monitoring/logs", async (req, reply) => {
+    const { sessionId } = req.query as any;
+    monitoringService.clearLogs(sessionId);
+    return { success: true, message: "Logs cleared" };
+  });
+
+  server.app.post("/api/monitoring/metrics/reset", async (req, reply) => {
+    const { sessionId } = req.body as any;
+    monitoringService.resetMetrics(sessionId);
+    return { success: true, message: "Metrics reset" };
+  });
+
+  // WebSocket endpoint for real-time monitoring
+  server.app.register(async function (fastify) {
+    fastify.get('/api/monitoring/stream', { websocket: true }, (connection, req) => {
+      const { sessionId } = req.query as any;
+      monitoringService.streamLogs(connection.socket, sessionId);
+    });
   });
 
   // Stop a specific session

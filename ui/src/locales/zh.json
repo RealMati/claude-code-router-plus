@@ -101,7 +101,6 @@
     "name_required": "名称为必填项",
     "name_duplicate": "已存在同名供应商",
     "search": "搜索供应商..."
-
   },
   "router": {
     "title": "路由",
@@ -224,5 +223,37 @@
     "worker_init_failed": "Worker初始化失败",
     "grouping_not_supported": "服务器不支持日志分组",
     "back": "返回"
+  },
+  "monitoring": {
+    "Monitoring Dashboard": "监控面板",
+    "Real-time request tracking and metrics": "实时请求跟踪和指标",
+    "Auto-refresh ON": "自动刷新 开启",
+    "Auto-refresh OFF": "自动刷新 关闭",
+    "Export Logs": "导出日志",
+    "Total Requests": "总请求数",
+    "Input Tokens": "输入令牌",
+    "Output Tokens": "输出令牌",
+    "Error Rate": "错误率",
+    "Request Logs": "请求日志",
+    "Session Metrics": "会话指标",
+    "Model Usage": "模型使用",
+    "Recent Requests": "最近请求",
+    "Clear Logs": "清除日志",
+    "No requests logged yet": "尚无请求日志",
+    "Session Performance Metrics": "会话性能指标",
+    "No metrics available": "暂无指标",
+    "Requests": "请求",
+    "Avg Response Time": "平均响应时间",
+    "Total Tokens": "总令牌数",
+    "Errors": "错误",
+    "Model & Provider Usage": "模型和提供商使用情况",
+    "Providers": "提供商",
+    "Models": "模型",
+    "Failed to load monitoring data": "加载监控数据失败",
+    "Logs cleared successfully": "日志清除成功",
+    "Failed to clear logs": "清除日志失败",
+    "Metrics reset successfully": "指标重置成功",
+    "Failed to reset metrics": "重置指标失败",
+    "Session warning": "⚠️ 此仪表板仅显示当前会话的指标"
   }
 }

@@ -324,8 +324,27 @@ export function LogViewer({ open, onOpenChange, showToast }: LogViewerProps) {
     if (!selectedFile) return;
 
     try {
+      // First clear the logs on the server
       await api.clearLogs(selectedFile.path);
+
+      // Clear the local state
       setLogs([]);
+      setGroupedLogs(null);
+      setSelectedReqId(null);
+
+      // Stop auto-refresh temporarily to prevent immediate refetch
+      const wasAutoRefresh = autoRefresh;
+      if (wasAutoRefresh) {
+        setAutoRefresh(false);
+      }
+
+      // Re-enable auto-refresh after a short delay
+      if (wasAutoRefresh) {
+        setTimeout(() => {
+          setAutoRefresh(true);
+        }, 1000);
+      }
+
       if (showToast) {
         showToast(t('log_viewer.logs_cleared'), 'success');
       }

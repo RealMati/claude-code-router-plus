@@ -52,22 +52,23 @@ class ApiClient {
   }
 
   // Create headers with API key authentication
-  private createHeaders(contentType: string = 'application/json'): HeadersInit {
+  private createHeaders(contentType?: string): HeadersInit {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     };
-    
+
     // Use temp API key if available, otherwise use regular API key
     if (this.tempApiKey) {
       headers['X-Temp-API-Key'] = this.tempApiKey;
     } else if (this.apiKey) {
       headers['X-API-Key'] = this.apiKey;
     }
-    
+
+    // Only set Content-Type if explicitly provided
     if (contentType) {
       headers['Content-Type'] = contentType;
     }
-    
+
     return headers;
   }
 
@@ -126,6 +127,9 @@ class ApiClient {
   async post<T>(endpoint: string, data: unknown): Promise<T> {
     return this.apiFetch<T>(endpoint, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(data),
     });
   }
@@ -134,15 +138,28 @@ class ApiClient {
   async put<T>(endpoint: string, data: unknown): Promise<T> {
     return this.apiFetch<T>(endpoint, {
       method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(data),
     });
   }
 
   // DELETE request
-  async delete<T>(endpoint: string): Promise<T> {
-    return this.apiFetch<T>(endpoint, {
+  async delete<T>(endpoint: string, data?: unknown): Promise<T> {
+    const options: RequestInit = {
       method: 'DELETE',
-    });
+    };
+
+    // Only add body and content-type if data is provided
+    if (data !== undefined) {
+      options.body = JSON.stringify(data);
+      options.headers = {
+        'Content-Type': 'application/json',
+      };
+    }
+
+    return this.apiFetch<T>(endpoint, options);
   }
 
   // API methods for configuration

@@ -7,6 +7,7 @@ import { readdirSync, statSync, readFileSync, writeFileSync, existsSync } from "
 import { homedir } from "os";
 import { monitoringService } from "./utils/monitoring";
 import websocket from "@fastify/websocket";
+import type { FastifyRequest, FastifyReply } from "fastify";
 
 export const createServer = (config: any): Server => {
   const server = new Server(config);
@@ -15,7 +16,7 @@ export const createServer = (config: any): Server => {
   server.app.register(websocket);
 
   // Add endpoint to read config.json with access control
-  server.app.get("/api/config", async (req, reply) => {
+  server.app.get("/api/config", async () => {
     return await readConfigFile();
   });
 
@@ -32,7 +33,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Add endpoint to save config.json with access control
-  server.app.post("/api/config", async (req, reply) => {
+  server.app.post("/api/config", async (req: FastifyRequest) => {
     const newConfig = req.body;
 
     // Backup existing config file if it exists
@@ -46,7 +47,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Add endpoint to restart the service with access control
-  server.app.post("/api/restart", async (req, reply) => {
+  server.app.post("/api/restart", async (_req: FastifyRequest, reply: FastifyReply) => {
     reply.send({ success: true, message: "Service restart initiated" });
 
     // Restart the service after a short delay to allow response to be sent
@@ -67,12 +68,12 @@ export const createServer = (config: any): Server => {
   });
 
   // Redirect /ui to /ui/ for proper static file serving
-  server.app.get("/ui", async (_, reply) => {
+  server.app.get("/ui", async (_req: FastifyRequest, reply: FastifyReply) => {
     return reply.redirect("/ui/");
   });
 
   // 版本检查端点
-  server.app.get("/api/update/check", async (req, reply) => {
+  server.app.get("/api/update/check", async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
       // 获取当前版本
       const currentVersion = require("../package.json").version;
@@ -90,7 +91,7 @@ export const createServer = (config: any): Server => {
   });
 
   // 执行更新端点
-  server.app.post("/api/update/perform", async (req, reply) => {
+  server.app.post("/api/update/perform", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       // 只允许完全访问权限的用户执行更新
       const accessLevel = (req as any).accessLevel || "restricted";
@@ -110,7 +111,7 @@ export const createServer = (config: any): Server => {
   });
 
   // 获取日志文件列表端点
-  server.app.get("/api/logs/files", async (req, reply) => {
+  server.app.get("/api/logs/files", async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
       const logDir = join(homedir(), ".claude-code-router", "logs");
       const logFiles: Array<{ name: string; path: string; size: number; lastModified: string }> = [];
@@ -144,7 +145,7 @@ export const createServer = (config: any): Server => {
   });
 
   // 获取日志内容端点
-  server.app.get("/api/logs", async (req, reply) => {
+  server.app.get("/api/logs", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const filePath = (req.query as any).file as string;
       let logFilePath: string;
@@ -172,7 +173,7 @@ export const createServer = (config: any): Server => {
   });
 
   // 清除日志内容端点
-  server.app.delete("/api/logs", async (req, reply) => {
+  server.app.delete("/api/logs", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const filePath = (req.query as any).file as string;
       let logFilePath: string;
@@ -197,7 +198,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Session management endpoints
-  server.app.get("/api/sessions", async (req, reply) => {
+  server.app.get("/api/sessions", async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { getAllActiveSessions } = require("./utils/sessionManager");
       const sessions = await getAllActiveSessions();
@@ -222,13 +223,13 @@ export const createServer = (config: any): Server => {
   });
 
   // Monitoring endpoints
-  server.app.get("/api/monitoring/logs", async (req, reply) => {
+  server.app.get("/api/monitoring/logs", async (req: FastifyRequest) => {
     const { sessionId, limit } = req.query as any;
     const logs = monitoringService.getRecentRequests(sessionId, parseInt(limit) || 100);
     return { logs };
   });
 
-  server.app.get("/api/monitoring/metrics", async (req, reply) => {
+  server.app.get("/api/monitoring/metrics", async (req: FastifyRequest) => {
     const { sessionId } = req.query as any;
     if (sessionId) {
       const metrics = monitoringService.getSessionMetrics(sessionId);
@@ -239,28 +240,38 @@ export const createServer = (config: any): Server => {
     }
   });
 
-  server.app.delete("/api/monitoring/logs", async (req, reply) => {
-    const { sessionId } = req.query as any;
-    monitoringService.clearLogs(sessionId);
-    return { success: true, message: "Logs cleared" };
+  server.app.delete("/api/monitoring/logs", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { sessionId } = req.query as any;
+      // If no sessionId is provided, clear all logs
+      monitoringService.clearLogs(sessionId || undefined);
+      return { success: true, message: "Logs cleared" };
+    } catch (error) {
+      console.error("Failed to clear monitoring logs:", error);
+      return reply.status(500).send({
+        success: false,
+        error: "Failed to clear monitoring logs",
+        message: (error as Error).message
+      });
+    }
   });
 
-  server.app.post("/api/monitoring/metrics/reset", async (req, reply) => {
+  server.app.post("/api/monitoring/metrics/reset", async (req: FastifyRequest) => {
     const { sessionId } = req.body as any;
     monitoringService.resetMetrics(sessionId);
     return { success: true, message: "Metrics reset" };
   });
 
   // WebSocket endpoint for real-time monitoring
-  server.app.register(async function (fastify) {
-    fastify.get('/api/monitoring/stream', { websocket: true }, (connection, req) => {
+  server.app.register(async function (fastify: any) {
+    fastify.get('/api/monitoring/stream', { websocket: true }, (connection: any, req: FastifyRequest) => {
       const { sessionId } = req.query as any;
       monitoringService.streamLogs(connection.socket, sessionId);
     });
   });
 
   // Stop a specific session
-  server.app.post("/api/sessions/:sessionId/stop", async (req, reply) => {
+  server.app.post("/api/sessions/:sessionId/stop", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { sessionId } = req.params as any;
 
@@ -355,7 +366,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Start a new session
-  server.app.post("/api/sessions/start", async (req, reply) => {
+  server.app.post("/api/sessions/start", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { modelPreference } = req.body as any;
 
@@ -407,7 +418,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Directory browser endpoint
-  server.app.get("/api/browse-directory", async (req, reply) => {
+  server.app.get("/api/browse-directory", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { path: dirPath = homedir() } = req.query as { path?: string };
       const fs = require("fs");
@@ -489,7 +500,7 @@ export const createServer = (config: any): Server => {
   });
 
   // Benchmark endpoint for launching multiple terminals
-  server.app.post("/api/benchmark/launch", async (req, reply) => {
+  server.app.post("/api/benchmark/launch", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { projectPath, prompt, models } = req.body as {
         projectPath: string;
@@ -513,43 +524,85 @@ export const createServer = (config: any): Server => {
         });
       }
 
-      const { spawn } = require("child_process");
+      const { spawn, execSync } = require("child_process");
       const { platform } = require("os");
       const path = require("path");
+      const fs = require("fs");
       const commands: string[] = [];
       let launched = 0;
 
       // Get the CLI path
       const cliPath = path.join(__dirname, "cli.js");
 
+      // Check if the project directory is a git repository
+      let isGitRepo = false;
+      try {
+        if (fs.existsSync(path.join(projectPath, ".git"))) {
+          // Verify it's a valid git repo
+          execSync("git status", { cwd: projectPath, stdio: "ignore" });
+          isGitRepo = true;
+        }
+      } catch (err) {
+        isGitRepo = false;
+      }
+
+      // Generate timestamp for unique worktree names
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+
       // Launch terminals for each selected model
       for (const model of selectedModels) {
         const modelPreference = `${model.provider},${model.model}`;
-        const command = `export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${prompt}"`;
+        let workingDirectory = projectPath;
+        let setupCommands = "";
+
+        if (isGitRepo) {
+          // Create unique worktree name
+          const worktreeName = `benchmark-${model.provider}-${model.model.replace(/[/:]/g, "-")}-${timestamp}`;
+          const worktreePath = path.join(path.dirname(projectPath), worktreeName);
+
+          // Commands to create and setup worktree
+          setupCommands = `cd '${projectPath}' && git worktree add '${worktreePath}' && cd '${worktreePath}' && `;
+          workingDirectory = worktreePath;
+
+          // Store worktree path for potential cleanup
+          console.log(`Creating worktree: ${worktreeName} at ${worktreePath}`);
+        } else {
+          // If not a git repo, just cd to the project directory
+          setupCommands = `cd '${projectPath}' && `;
+        }
+
+        const command = `${setupCommands}export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${prompt}"`;
         commands.push(command);
 
         // Platform-specific terminal launching
         if (platform() === "darwin") {
-          // macOS - use AppleScript to open Terminal
-          // Escape single quotes in the path and command
-          const escapedPath = projectPath.replace(/'/g, "'\\''");
-          const escapedPrompt = prompt.replace(/'/g, "'\\''");
-          const terminalCommand = `cd '${escapedPath}' && export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${escapedPrompt}"`;
+          // macOS - use osascript with proper escaping
+          try {
+            // Escape the command for AppleScript string
+            // Replace backslashes first, then quotes
+            const escapedCommand = command
+              .replace(/\\/g, '\\\\')
+              .replace(/"/g, '\\"');
 
-          const appleScript = `tell application "Terminal" to do script "${terminalCommand.replace(/"/g, '\\"')}"`;
+            // Build AppleScript command
+            const script = `tell application "Terminal"
+              activate
+              do script "${escapedCommand}"
+            end tell`;
 
-          const proc = spawn("osascript", ["-e", appleScript], {
-            detached: true,
-            stdio: "ignore"
-          });
-          proc.unref();
+            // Execute AppleScript
+            execSync(`osascript -e '${script.replace(/'/g, "'\\''").replace(/\n/g, "' -e '")}'`, {
+              stdio: 'inherit'
+            });
 
-          launched++;
+            launched++;
+            console.log(`Launched terminal for ${model.provider}/${model.model}`);
+          } catch (err) {
+            console.error(`Failed to launch terminal for ${model.provider}/${model.model}:`, err);
+          }
         } else if (platform() === "win32") {
           // Windows - use cmd.exe with start command
-          const winCommand = `cd /d "${projectPath}" && set CCR_MODEL_PREFERENCE=${modelPreference} && node "${cliPath}" code "${prompt}"`;
-
-          spawn("cmd.exe", ["/c", "start", "cmd.exe", "/k", winCommand], {
+          spawn("cmd.exe", ["/c", "start", "cmd.exe", "/k", command], {
             detached: true,
             stdio: "ignore",
             shell: true
@@ -564,17 +617,17 @@ export const createServer = (config: any): Server => {
           for (const terminal of terminals) {
             try {
               if (terminal === "gnome-terminal") {
-                spawn(terminal, ["--", "bash", "-c", `cd '${projectPath}' && ${command}; exec bash`], {
+                spawn(terminal, ["--", "bash", "-c", `${command}; exec bash`], {
                   detached: true,
                   stdio: "ignore"
                 }).unref();
               } else if (terminal === "konsole") {
-                spawn(terminal, ["-e", "bash", "-c", `cd '${projectPath}' && ${command}; exec bash`], {
+                spawn(terminal, ["-e", "bash", "-c", `${command}; exec bash`], {
                   detached: true,
                   stdio: "ignore"
                 }).unref();
               } else {
-                spawn(terminal, ["-e", `bash -c "cd '${projectPath}' && ${command}; exec bash"`], {
+                spawn(terminal, ["-e", `bash -c "${command}; exec bash"`], {
                   detached: true,
                   stdio: "ignore"
                 }).unref();
@@ -600,9 +653,11 @@ export const createServer = (config: any): Server => {
 
       return {
         success: true,
-        message: `Launched ${launched} terminal${launched > 1 ? 's' : ''}`,
+        message: `Launched ${launched} terminal${launched > 1 ? 's' : ''}${isGitRepo ? ' with git worktrees' : ''}`,
         launched,
-        commands
+        commands,
+        isGitRepo,
+        timestamp: isGitRepo ? timestamp : undefined
       };
     } catch (error) {
       console.error("Failed to launch benchmark:", error);

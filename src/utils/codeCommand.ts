@@ -22,6 +22,9 @@ export async function executeCodeCommand(args: string[] = [], sessionConfig?: Se
     DISABLE_TELEMETRY: 'true',
     DISABLE_COST_WARNINGS: 'true',
     API_TIMEOUT_MS: String(config.API_TIMEOUT_MS ?? 600000), // Default to 10 minutes if not set
+    CCR_SESSION_ID: sessionConfig?.sessionId || 'default',
+    CCR_SESSION_PORT: String(port),
+    CCR_MODEL_PREFERENCE: sessionConfig?.modelPreference || '',
   };
   let settingsFlag: Record<string, any> | undefined;
   if (config?.StatusLine?.enabled) {

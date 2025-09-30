@@ -5,3 +5,6 @@ log.txt
 dist
 .DS_Store
 .vscode
+
+# Timing data
+.claude/timings/

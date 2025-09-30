@@ -254,7 +254,7 @@ function App() {
               const previousCount = previousSessionCounts[session.sessionId] || 0;
               const currentCount = session.stats?.total || 0;
 
-              if (currentCount > previousCount && previousCount > 0) {
+              if (currentCount > previousCount) {
                 // New session completed!
                 const latestSession = session.timings?.[session.timings.length - 1];
 

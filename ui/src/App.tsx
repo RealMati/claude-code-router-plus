@@ -8,11 +8,12 @@ import { Router } from "@/components/Router";
 import { JsonEditor } from "@/components/JsonEditor";
 import { LogViewer } from "@/components/LogViewer";
 import SessionManager from "./SessionManager";
+import SessionTimings from "@/components/SessionTimings";
 import { MonitoringModal } from "@/components/MonitoringModal";
 import { Button } from "@/components/ui/button";
 import { useConfig } from "@/components/ConfigProvider";
 import { api } from "@/lib/api";
-import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server, Activity, FlaskConical } from "lucide-react";
+import { Settings, Languages, Save, RefreshCw, FileJson, CircleArrowUp, FileText, Server, Activity, FlaskConical, Timer } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -37,6 +38,7 @@ function App() {
   const [isJsonEditorOpen, setIsJsonEditorOpen] = useState(false);
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false);
   const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false);
+  const [isSessionTimingsOpen, setIsSessionTimingsOpen] = useState(false);
   const [isMonitoringOpen, setIsMonitoringOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -288,6 +290,9 @@ function App() {
           <Button variant="ghost" size="icon" onClick={() => setIsSessionManagerOpen(true)} className="transition-all-ease hover:scale-110">
             <Server className="h-5 w-5" />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => setIsSessionTimingsOpen(true)} className="transition-all-ease hover:scale-110">
+            <Timer className="h-5 w-5" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setIsMonitoringOpen(true)} className="transition-all-ease hover:scale-110">
             <Activity className="h-5 w-5" />
           </Button>
@@ -380,6 +385,18 @@ function App() {
             <DialogTitle>Session Management</DialogTitle>
           </DialogHeader>
           <SessionManager />
+        </DialogContent>
+      </Dialog>
+      {/* Session Timings Dialog */}
+      <Dialog open={isSessionTimingsOpen} onOpenChange={setIsSessionTimingsOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Session Timings</DialogTitle>
+            <DialogDescription>
+              Real-time tracking of Claude Code session completion times
+            </DialogDescription>
+          </DialogHeader>
+          <SessionTimings />
         </DialogContent>
       </Dialog>
       {/* 版本更新对话框 */}

@@ -417,6 +417,61 @@ export const createServer = (config: any): Server => {
     }
   });
 
+  // Get timing data for sessions
+  server.app.get("/api/sessions/timings", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+
+      // Read timing data from project directory
+      const cwd = process.cwd();
+      const timingsDir = path.join(cwd, ".claude/timings");
+
+      if (!existsSync(timingsDir)) {
+        return { sessions: [] };
+      }
+
+      const { getAllActiveSessions } = require("./utils/sessionManager");
+      const activeSessions = await getAllActiveSessions();
+      const activeSessionIds = new Set(activeSessions.map((s: any) => s.sessionId));
+
+      const sessionTimings: any[] = [];
+      const sessionDirs = fs.readdirSync(timingsDir);
+
+      for (const sessionId of sessionDirs) {
+        const timingFile = path.join(timingsDir, sessionId, "session-timings.jsonl");
+
+        if (existsSync(timingFile)) {
+          const content = fs.readFileSync(timingFile, "utf-8");
+          const lines = content.trim().split("\n").filter((line: string) => line);
+          const timings = lines.map((line: string) => JSON.parse(line));
+
+          // Find matching session info
+          const sessionInfo = activeSessions.find((s: any) => s.sessionId === sessionId);
+
+          sessionTimings.push({
+            sessionId,
+            modelPreference: sessionInfo?.modelPreference || "unknown",
+            port: sessionInfo?.port || parseInt(timings[0]?.router_port) || 0,
+            isActive: activeSessionIds.has(sessionId),
+            timings: timings,
+            stats: {
+              total: timings.length,
+              avgDuration: timings.reduce((sum: number, t: any) => sum + t.duration_seconds, 0) / timings.length,
+              minDuration: Math.min(...timings.map((t: any) => t.duration_seconds)),
+              maxDuration: Math.max(...timings.map((t: any) => t.duration_seconds)),
+            }
+          });
+        }
+      }
+
+      return { sessions: sessionTimings };
+    } catch (error) {
+      console.error("Failed to get timing data:", error);
+      reply.status(500).send({ error: "Failed to get timing data" });
+    }
+  });
+
   // Directory browser endpoint
   server.app.get("/api/browse-directory", async (req: FastifyRequest, reply: FastifyReply) => {
     try {

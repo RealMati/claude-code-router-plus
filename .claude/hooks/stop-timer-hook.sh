@@ -3,8 +3,13 @@
 # Stop Hook - Track session completion timing for router sessions
 # Triggers when Claude finishes responding (not interrupted)
 
+# Debug log
+debug_log="/tmp/claude-stop-hook-debug.log"
+echo "[$(date)] Hook triggered" >> "$debug_log"
+
 # Read hook input from stdin
 input=$(cat)
+echo "[$(date)] Input received" >> "$debug_log"
 
 # Extract Claude session variables
 claude_session_id=$(echo "$input" | jq -r '.session_id')
@@ -13,8 +18,11 @@ stop_hook_active=$(echo "$input" | jq -r '.stop_hook_active // false')
 
 # Prevent infinite loops
 if [ "$stop_hook_active" = "true" ]; then
+    echo "[$(date)] Stop hook already active, exiting" >> "$debug_log"
     exit 0
 fi
+
+echo "[$(date)] CCR_SESSION_ID=$CCR_SESSION_ID, CCR_SESSION_PORT=$CCR_SESSION_PORT" >> "$debug_log"
 
 # Extract router session info
 # Try environment first, fall back to finding active router by checking port files

@@ -42,4 +42,50 @@ This project is a TypeScript-based router for Claude Code requests. It allows ro
 -   **Dependencies**: The project is built with `esbuild`. It has a key local dependency `@musistudio/llms`, which contains the core logic for interacting with different LLM APIs.
 -   `@musistudio/llms` is implemented based on `fastify` and exposes `fastify`'s hook and middleware interfaces, allowing direct use of `server.addHook`.
 -   **Benchmark Feature**: The UI includes a benchmark page at `/benchmark` that allows testing multiple models in parallel with git worktree support for isolated testing environments.
+-   **Session Timing Tracking**: The project includes a Claude Code Stop hook that automatically tracks session completion timing. Timing data is stored in `.claude/timings/<session-id>/session-timings.jsonl` and can be viewed via the UI's Timer icon. Hook debug logs are written to `/tmp/claude-stop-hook-debug.log`.
 - 无论如何你都不能自动提交git
+
+## Session Timing Feature
+
+The router tracks Claude Code session completion times using a project-level Stop hook:
+
+-   **Hook Location**: `.claude/hooks/stop-timer-hook.sh`
+-   **Configuration**: `.claude/settings.json` enables the Stop hook
+-   **Timing Data**: Stored in `.claude/timings/<session-id>/session-timings.jsonl`
+-   **Debug Logs**: Written to `/tmp/claude-stop-hook-debug.log`
+-   **UI Integration**: Click the Timer icon (⏱️) in the router UI to view real-time session statistics
+
+### Viewing Timing Data
+
+**Via UI**:
+```bash
+# Open router UI and click Timer icon
+http://127.0.0.1:<port>/ui/
+```
+
+**Via CLI**:
+```bash
+# View statistics for all sessions
+./.claude/view-timings.sh
+
+# View raw data for specific session
+cat .claude/timings/<session-id>/session-timings.jsonl | jq
+
+# Check hook debug logs
+cat /tmp/claude-stop-hook-debug.log
+```
+
+### Data Format
+
+Each timing entry includes:
+```json
+{
+  "router_session_id": "10355052",
+  "router_port": 3460,
+  "claude_session_id": "abc-123",
+  "timestamp": "2025-09-30T18:53:57Z",
+  "duration_seconds": 5,
+  "turns": 2,
+  "prompt_preview": "hello!"
+}
+```

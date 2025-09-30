@@ -35,12 +35,54 @@ const SessionTimings: React.FC = () => {
   const [timings, setTimings] = useState<SessionTimingData[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [previousTotalSessions, setPreviousTotalSessions] = useState<Record<string, number>>({});
+
+  // Create audio element for notification sound
+  const playNotificationSound = () => {
+    // Create a simple notification beep using Web Audio API
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.value = 800; // Hz
+    oscillator.type = 'sine';
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  };
 
   const fetchTimings = async () => {
     try {
       const response = await fetch('/api/sessions/timings');
       if (response.ok) {
         const data: SessionTimingsResponse = await response.json();
+
+        // Check if any session has new completions
+        if (!loading) { // Skip notification on initial load
+          data.sessions.forEach(session => {
+            const previousCount = previousTotalSessions[session.sessionId] || 0;
+            const currentCount = session.stats.total;
+
+            if (currentCount > previousCount) {
+              // New session completed, play sound
+              playNotificationSound();
+            }
+          });
+        }
+
+        // Update previous counts
+        const newCounts: Record<string, number> = {};
+        data.sessions.forEach(session => {
+          newCounts[session.sessionId] = session.stats.total;
+        });
+        setPreviousTotalSessions(newCounts);
+
         setTimings(data.sessions);
         setLastUpdate(new Date());
       }

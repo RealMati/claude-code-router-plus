@@ -41,6 +41,8 @@ function App() {
   const [isSessionTimingsOpen, setIsSessionTimingsOpen] = useState(false);
   const [isMonitoringOpen, setIsMonitoringOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [previousSessionCounts, setPreviousSessionCounts] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   // 版本检查状态
   const [isNewVersionAvailable, setIsNewVersionAvailable] = useState(false);
@@ -225,7 +227,97 @@ function App() {
       window.removeEventListener('unauthorized', handleUnauthorized);
     };
   }, [config, navigate, hasCheckedUpdate, checkForUpdates]);
-  
+
+  // Request notification permissions and setup background polling
+  useEffect(() => {
+    const requestNotificationPermission = async () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        setNotificationsEnabled(permission === 'granted');
+      } else if (Notification.permission === 'granted') {
+        setNotificationsEnabled(true);
+      }
+    };
+
+    requestNotificationPermission();
+
+    // Background polling for session timing updates
+    const pollTimings = async () => {
+      try {
+        const response = await fetch('/api/sessions/timings');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.sessions) {
+            // Check for new completions
+            data.sessions.forEach((session: any) => {
+              const previousCount = previousSessionCounts[session.sessionId] || 0;
+              const currentCount = session.stats?.total || 0;
+
+              if (currentCount > previousCount && previousCount > 0) {
+                // New session completed!
+                const latestSession = session.timings?.[session.timings.length - 1];
+
+                if (notificationsEnabled && latestSession) {
+                  // Show browser notification
+                  const notification = new Notification('Claude Code Session Completed', {
+                    body: `Session on port ${session.port} completed in ${latestSession.duration_seconds}s (${latestSession.turns} turns)`,
+                    icon: '/favicon.ico',
+                    tag: `session-${session.sessionId}-${currentCount}`,
+                    requireInteraction: false,
+                  });
+
+                  // Auto-close after 5 seconds
+                  setTimeout(() => notification.close(), 5000);
+
+                  // Play sound
+                  playNotificationSound();
+                }
+              }
+            });
+
+            // Update counts
+            const newCounts: Record<string, number> = {};
+            data.sessions.forEach((session: any) => {
+              newCounts[session.sessionId] = session.stats?.total || 0;
+            });
+            setPreviousSessionCounts(newCounts);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll timings:', err);
+      }
+    };
+
+    // Poll every 3 seconds
+    const interval = setInterval(pollTimings, 3000);
+
+    return () => clearInterval(interval);
+  }, [notificationsEnabled, previousSessionCounts]);
+
+  // Notification sound helper
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (err) {
+      console.error('Failed to play sound:', err);
+    }
+  };
+
   // 执行更新函数
   const performUpdate = async () => {
     if (!newVersionInfo) return;

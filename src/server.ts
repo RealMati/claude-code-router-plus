@@ -622,11 +622,18 @@ export const createServer = (config: any): Server => {
           // Store worktree path for potential cleanup
           console.log(`Creating worktree: ${worktreeName} at ${worktreePath}`);
         } else {
-          // If not a git repo, just cd to the project directory
-          setupCommands = `cd '${projectPath}' && `;
+          // If not a git repo, create a copy of the project directory
+          const copyName = `benchmark-${model.provider}-${model.model.replace(/[/:]/g, "-")}-${timestamp}`;
+          const copyPath = path.join(path.dirname(projectPath), copyName);
+
+          // Commands to copy the directory and cd into it
+          setupCommands = `cp -r '${projectPath}' '${copyPath}' && cd '${copyPath}' && `;
+          workingDirectory = copyPath;
+
+          console.log(`Creating project copy: ${copyName} at ${copyPath}`);
         }
 
-        const command = `${setupCommands}export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${prompt}"`;
+        const command = `${setupCommands}export CCR_MODEL_PREFERENCE="${modelPreference}" && node "${cliPath}" code "${prompt}"  --dangerously-skip-permissions`;
         commands.push(command);
 
         // Platform-specific terminal launching
@@ -708,7 +715,7 @@ export const createServer = (config: any): Server => {
 
       return {
         success: true,
-        message: `Launched ${launched} terminal${launched > 1 ? 's' : ''}${isGitRepo ? ' with git worktrees' : ''}`,
+        message: `Launched ${launched} terminal${launched > 1 ? 's' : ''}${isGitRepo ? ' with git worktrees' : ' with project folder copies'}`,
         launched,
         commands,
         isGitRepo,
